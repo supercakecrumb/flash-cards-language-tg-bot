@@ -28,12 +28,14 @@ type Bot struct {
 
 // UserState represents the current state of a user's interaction with the bot
 type UserState struct {
-	State       string
-	CurrentWord string
-	CurrentBank int
-	SelectedDef string
-	Examples    []string
-	PhotoURL    string
+	State         string
+	CurrentWord   string
+	CurrentBank   int
+	SelectedDef   string
+	Examples      []string
+	PhotoURL      string
+	ReviewState   *ReviewState
+	SettingsField string
 	// Other state fields as needed
 }
 
