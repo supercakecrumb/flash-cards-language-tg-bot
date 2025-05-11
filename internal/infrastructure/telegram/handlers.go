@@ -252,11 +252,16 @@ func (b *Bot) handleHelpCommand(update tgbotapi.Update, user *models.User) {
 • Use the buttons to navigate through definitions and examples
 • Regular review is key to effective learning!
 
-For more detailed help on a specific command, type /help [command]`
+For more details on a specific command, type: /help [command]`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
-	msg.ParseMode = "Markdown"
-	b.api.Send(msg)
+	msg.ParseMode = "HTML"
+	response, err := b.api.Send(msg)
+	if err != nil {
+		b.logger.Error("Failed to send help message", "error", err)
+	} else {
+		b.logger.Debug("Help message sent successfully", "response", response)
+	}
 }
 
 func (b *Bot) handleAddWordCommand(update tgbotapi.Update, user *models.User, args string) {
@@ -361,7 +366,7 @@ func (b *Bot) processWord(user *models.User, chatID int64, word string) {
 	text := fmt.Sprintf("📝 *Definitions for \"%s\"*\n\nPlease select the definition you want to use:", word)
 
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = b.createDefinitionsKeyboard(word, definitions)
 
 	b.api.Send(msg)
@@ -416,7 +421,7 @@ func (b *Bot) handleDefinitionCallback(update tgbotapi.Update, user *models.User
 	selectionText := fmt.Sprintf("You selected: *%s*\n\nNow, please select examples you want to include:", definition.Text)
 
 	msg := tgbotapi.NewMessage(chatID, selectionText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	b.api.Send(msg)
 
 	// Send examples with inline keyboard
@@ -443,7 +448,7 @@ func (b *Bot) handleDefinitionCallback(update tgbotapi.Update, user *models.User
 	examplesText := fmt.Sprintf("📚 *Examples for \"%s\"*\n\nSelect the examples you want to include (you can select multiple):", state.CurrentWord)
 
 	examplesMsg := tgbotapi.NewMessage(chatID, examplesText)
-	examplesMsg.ParseMode = "Markdown"
+	examplesMsg.ParseMode = "HTML"
 	examplesMsg.ReplyMarkup = b.createExamplesKeyboard(examples, state.Examples)
 
 	b.api.Send(examplesMsg)
@@ -516,7 +521,7 @@ func (b *Bot) handleExampleCallback(update tgbotapi.Update, user *models.User, a
 			examplesText := fmt.Sprintf("📚 *Examples for \"%s\"*\n\nSelect the examples you want to include (you can select multiple):", state.CurrentWord)
 
 			examplesMsg := tgbotapi.NewMessage(chatID, examplesText)
-			examplesMsg.ParseMode = "Markdown"
+			examplesMsg.ParseMode = "HTML"
 			examplesMsg.ReplyMarkup = b.createExamplesKeyboard(examples, state.Examples)
 
 			b.api.Send(examplesMsg)
@@ -650,7 +655,7 @@ func (b *Bot) createFlashCard(chatID int64, user *models.User, state UserState) 
 	text += "\n\nUse /review to practice your flash cards."
 
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 
 	b.api.Send(msg)
 }
@@ -939,7 +944,7 @@ func (b *Bot) handleStatsCommand(update tgbotapi.Update, user *models.User, args
 
 	// Send statistics
 	msg := tgbotapi.NewMessage(chatID, statsText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 
 	b.api.Send(msg)
 }
@@ -1021,7 +1026,7 @@ func (b *Bot) handleBanksCommand(update tgbotapi.Update, user *models.User) {
 	}
 
 	msg := tgbotapi.NewMessage(chatID, banksText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = b.createBanksKeyboard(banks, 1, 1)
 
 	b.api.Send(msg)
@@ -1352,7 +1357,7 @@ func (b *Bot) handleSettingsCommand(update tgbotapi.Update, user *models.User) {
 
 	// Send settings with keyboard
 	msg := tgbotapi.NewMessage(chatID, settingsText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = b.createSettingsKeyboard(settings)
 
 	b.api.Send(msg)
@@ -1545,7 +1550,7 @@ func (b *Bot) showReviewCard(chatID int64, user *models.User, card models.FlashC
 	}
 
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = b.createReviewKeyboard(isFlipped)
 
 	b.api.Send(msg)

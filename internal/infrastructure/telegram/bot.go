@@ -151,6 +151,7 @@ func (b *Bot) ensureUser(from *tgbotapi.User) (*models.User, error) {
 // sendMessage sends a text message to a chat
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "HTML"
 	_, err := b.api.Send(msg)
 	if err != nil {
 		b.logger.Error("Failed to send message", "error", err)
