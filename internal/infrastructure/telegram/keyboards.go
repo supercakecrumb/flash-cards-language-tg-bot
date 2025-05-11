@@ -8,21 +8,22 @@ import (
 	"github.com/supercakecrumb/flash-cards-language-tg-bot/internal/domain/services"
 )
 
+const (
+	MaxDefinitions = 5
+)
+
 // createDefinitionsKeyboard creates an inline keyboard with definitions
 func (b *Bot) createDefinitionsKeyboard(word string, definitions []services.Definition) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	for i, def := range definitions {
-		if i >= 5 {
-			// Limit to 5 definitions to avoid huge messages
+		if i >= MaxDefinitions {
+			// Limit definitions to avoid huge messages
 			break
 		}
 
 		// Truncate definition if too long
 		defText := def.Text
-		if len(defText) > 30 {
-			defText = defText[:27] + "..."
-		}
 
 		button := tgbotapi.NewInlineKeyboardButtonData(
 			fmt.Sprintf("%d. %s (%s)", i+1, defText, def.PartOfSpeech),
