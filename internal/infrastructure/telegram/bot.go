@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"os"
 
 	"log/slog"
 
@@ -23,8 +24,11 @@ type Bot struct {
 	adminService     services.AdminService
 
 	// State management for multi-step operations
-	userStates map[int64]UserState
+	userStates   map[conversationKey]UserState
+	inviteSecret []byte
 }
+
+type conversationKey struct{ UserID, ChatID int64 }
 
 // UserState represents the current state of a user's interaction with the bot
 type UserState struct {
@@ -66,7 +70,8 @@ func NewBot(
 		statsService:     statsService,
 		settingsService:  settingsService,
 		adminService:     adminService,
-		userStates:       make(map[int64]UserState),
+		userStates:       make(map[conversationKey]UserState),
+		inviteSecret:     []byte(os.Getenv("SHARE_TOKEN_SECRET")),
 	}, nil
 }
 
@@ -82,7 +87,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	for {
 		select {
 		case update := <-updates:
-			go b.handleUpdate(update)
+			b.handleUpdate(update)
 		case <-ctx.Done():
 			b.logger.Info("Stopping Telegram bot")
 			return nil
@@ -92,6 +97,12 @@ func (b *Bot) Start(ctx context.Context) error {
 
 // handleUpdate handles a Telegram update
 func (b *Bot) handleUpdate(update tgbotapi.Update) {
+	if update.Message != nil && (update.Message.From == nil || update.Message.Chat == nil) {
+		return
+	}
+	if update.CallbackQuery != nil && (update.CallbackQuery.From == nil || update.CallbackQuery.Message == nil || update.CallbackQuery.Message.Chat == nil) {
+		return
+	}
 	// Log incoming update
 	b.logger.Debug("Received update",
 		"update_id", update.UpdateID,

@@ -144,7 +144,7 @@ func (b *Bot) handleMessage(update tgbotapi.Update) {
 	isGroup := update.Message.Chat.IsGroup() || update.Message.Chat.IsSuperGroup()
 
 	// Get user's current state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 
 	// Handle based on state or default to word addition in private chats
 	if exists {
@@ -192,7 +192,7 @@ func (b *Bot) handlePhoto(update tgbotapi.Update) {
 	}
 
 	// Get user's current state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 
 	// Only process photos if we're expecting one for a flash card
 	if exists && state.State == "awaiting_photo" {
@@ -256,11 +256,11 @@ For more details on a specific command, type: /help [command]`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
 	msg.ParseMode = "HTML"
-	response, err := b.api.Send(msg)
+	_, err := b.api.Send(msg)
 	if err != nil {
 		b.logger.Error("Failed to send help message", "error", err)
 	} else {
-		b.logger.Debug("Help message sent successfully", "response", response)
+		b.logger.Debug("Help message sent successfully")
 	}
 }
 
@@ -269,7 +269,7 @@ func (b *Bot) handleAddWordCommand(update tgbotapi.Update, user *models.User, ar
 
 	// If no word provided in command, prompt user and set state
 	if args == "" {
-		b.userStates[user.TelegramID] = UserState{
+		b.userStates[conversationKey{user.TelegramID, chatID}] = UserState{
 			State: "awaiting_word",
 		}
 		b.sendMessage(chatID, "Please send the English word you want to add as a flash card.")
@@ -296,7 +296,7 @@ func (b *Bot) handleGroupWordInput(update tgbotapi.Update, user *models.User, te
 		State:       "awaiting_word",
 		CurrentBank: bankID,
 	}
-	b.userStates[user.TelegramID] = state
+	b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 	// Process the word
 	b.processWord(user, chatID, text)
@@ -319,7 +319,7 @@ func (b *Bot) processWord(user *models.User, chatID int64, word string) {
 
 	// Use the bank ID from user state if available, otherwise use the active bank from settings
 	bankID := settings.Settings.ActiveCardBankID
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 	if exists && state.CurrentBank != 0 {
 		bankID = state.CurrentBank
 	}
@@ -360,7 +360,7 @@ func (b *Bot) processWord(user *models.User, chatID int64, word string) {
 		CurrentWord: word,
 		CurrentBank: bankID,
 	}
-	b.userStates[user.TelegramID] = state
+	b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 	// Send definitions with inline keyboard
 	text := fmt.Sprintf("📝 *Definitions for \"%s\"*\n\nPlease select the definition you want to use:", word)
@@ -383,7 +383,7 @@ func (b *Bot) handleDefinitionCallback(update tgbotapi.Update, user *models.User
 	definitionID := args[0]
 
 	// Get user state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 	if !exists || state.CurrentWord == "" {
 		b.sendErrorMessage(chatID, "Session expired. Please start again by sending a word.")
 		return
@@ -392,7 +392,7 @@ func (b *Bot) handleDefinitionCallback(update tgbotapi.Update, user *models.User
 	// Update user state
 	state.State = "selecting_examples"
 	state.SelectedDef = definitionID
-	b.userStates[user.TelegramID] = state
+	b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 	// Get examples for this definition
 	examples, err := b.flashcardService.GetExamples(state.CurrentWord, definitionID)
@@ -465,7 +465,7 @@ func (b *Bot) handleExampleCallback(update tgbotapi.Update, user *models.User, a
 	action := args[0]
 
 	// Get user state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 	if !exists || state.CurrentWord == "" || state.SelectedDef == "" {
 		b.sendErrorMessage(chatID, "Session expired. Please start again by sending a word.")
 		return
@@ -492,7 +492,7 @@ func (b *Bot) handleExampleCallback(update tgbotapi.Update, user *models.User, a
 
 		if !found {
 			state.Examples = append(state.Examples, exampleID)
-			b.userStates[user.TelegramID] = state
+			b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 			// Get the example
 			example, err := b.flashcardService.GetExample(exampleID)
@@ -530,7 +530,7 @@ func (b *Bot) handleExampleCallback(update tgbotapi.Update, user *models.User, a
 	case "photo":
 		// User wants to add a context photo
 		state.State = "awaiting_photo"
-		b.userStates[user.TelegramID] = state
+		b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 		b.sendMessage(chatID, "Please send a photo that provides context for this word.")
 
@@ -552,27 +552,13 @@ func (b *Bot) handleContextPhoto(update tgbotapi.Update, user *models.User) {
 
 	largestPhoto := photos[len(photos)-1]
 
-	// Get file URL
-	fileConfig := tgbotapi.FileConfig{
-		FileID: largestPhoto.FileID,
-	}
-
-	file, err := b.api.GetFile(fileConfig)
-	if err != nil {
-		b.logger.Error("Failed to get photo file",
-			"error", err,
-			"file_id", largestPhoto.FileID,
-		)
-		b.sendErrorMessage(chatID, "Failed to process the photo. Please try again.")
-		return
-	}
-
-	photoURL := file.Link(b.api.Token)
+	// Telegram file IDs can be reused without persisting the bot credential.
+	photoURL := "telegram-file-id:" + largestPhoto.FileID
 
 	// Update user state
-	state := b.userStates[user.TelegramID]
+	state := b.userStates[conversationKey{user.TelegramID, chatID}]
 	state.PhotoURL = photoURL
-	b.userStates[user.TelegramID] = state
+	b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 	// Create flash card with photo
 	b.createFlashCard(chatID, user, state)
@@ -635,7 +621,7 @@ func (b *Bot) createFlashCard(chatID int64, user *models.User, state UserState) 
 	}
 
 	// Clear user state
-	delete(b.userStates, user.TelegramID)
+	delete(b.userStates, conversationKey{user.TelegramID, chatID})
 
 	// Send confirmation
 	text := fmt.Sprintf("✅ Flash card created for *%s*!\n\n*Definition:*\n%s",
@@ -733,7 +719,7 @@ func (b *Bot) handleReviewCommand(update tgbotapi.Update, user *models.User, arg
 	}
 
 	// Store review state in user state
-	b.userStates[user.TelegramID] = UserState{
+	b.userStates[conversationKey{user.TelegramID, chatID}] = UserState{
 		State:       "reviewing",
 		CurrentBank: activeBankID,
 		ReviewState: &reviewState,
@@ -754,7 +740,7 @@ func (b *Bot) handleReviewCallback(update tgbotapi.Update, user *models.User, ar
 	action := args[0]
 
 	// Get user state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 	if !exists || state.State != "reviewing" || state.ReviewState == nil {
 		b.sendErrorMessage(chatID, "Review session expired. Please start a new review with /review.")
 		return
@@ -766,7 +752,7 @@ func (b *Bot) handleReviewCallback(update tgbotapi.Update, user *models.User, ar
 	case "flip":
 		// Flip the card
 		reviewState.IsFlipped = true
-		b.userStates[user.TelegramID] = state
+		b.userStates[conversationKey{user.TelegramID, chatID}] = state
 
 		// Show the flipped card
 		b.showReviewCard(chatID, user, reviewState.Cards[reviewState.CurrentCard], true)
@@ -837,7 +823,7 @@ func (b *Bot) handleReviewCallback(update tgbotapi.Update, user *models.User, ar
 
 		if reviewState.CurrentCard >= len(reviewState.Cards) {
 			// Review session completed
-			delete(b.userStates, user.TelegramID)
+			delete(b.userStates, conversationKey{user.TelegramID, chatID})
 
 			// Get review stats
 			totalCards, dueCards, err := b.spacedRepService.GetReviewStats(user.ID)
@@ -856,7 +842,7 @@ func (b *Bot) handleReviewCallback(update tgbotapi.Update, user *models.User, ar
 		}
 
 		// Show the next card
-		b.userStates[user.TelegramID] = state
+		b.userStates[conversationKey{user.TelegramID, chatID}] = state
 		b.showReviewCard(chatID, user, reviewState.Cards[reviewState.CurrentCard], false)
 	}
 }
@@ -1112,7 +1098,7 @@ func (b *Bot) handleBankCallback(update tgbotapi.Update, user *models.User, args
 
 	case "create":
 		// User wants to create a new bank
-		b.userStates[user.TelegramID] = UserState{
+		b.userStates[conversationKey{user.TelegramID, chatID}] = UserState{
 			State: "awaiting_bank_name",
 		}
 
@@ -1125,7 +1111,7 @@ func (b *Bot) handleCreateBankCommand(update tgbotapi.Update, user *models.User,
 
 	// If no name provided in command, prompt user and set state
 	if args == "" {
-		b.userStates[user.TelegramID] = UserState{
+		b.userStates[conversationKey{user.TelegramID, chatID}] = UserState{
 			State: "awaiting_bank_name",
 		}
 		b.sendMessage(chatID, "Please send the name for your new card bank.")
@@ -1173,7 +1159,7 @@ func (b *Bot) handleBankNameInput(update tgbotapi.Update, user *models.User, tex
 	}
 
 	// Clear user state
-	delete(b.userStates, user.TelegramID)
+	delete(b.userStates, conversationKey{user.TelegramID, chatID})
 
 	// Set as active bank
 	err = b.settingsService.SetActiveCardBank(user.ID, bank.ID)
@@ -1199,7 +1185,7 @@ func (b *Bot) handleShareBankCommand(update tgbotapi.Update, user *models.User, 
 
 	// Get target username
 	targetUsername := strings.TrimSpace(args)
-	if targetUsername[0] == '@' {
+	if strings.HasPrefix(targetUsername, "@") {
 		targetUsername = targetUsername[1:] // Remove @ if present
 	}
 
@@ -1239,8 +1225,15 @@ func (b *Bot) handleShareBankCommand(update tgbotapi.Update, user *models.User, 
 		return
 	}
 
-	// Generate a share code (we'll use the bank ID for simplicity)
-	shareCode := fmt.Sprintf("%d", bank.ID)
+	if bank.OwnerID != user.ID {
+		b.sendErrorMessage(chatID, "Only the bank owner can share this bank.")
+		return
+	}
+	shareCode, err := b.createBankInvite(bank.ID, targetUsername)
+	if err != nil {
+		b.sendErrorMessage(chatID, "Sharing is unavailable. Check the target username and server configuration.")
+		return
+	}
 
 	// Send share message
 	shareText := fmt.Sprintf("You've shared your card bank \"%s\" with @%s.\n\nThey can join using the command:\n/join_bank %s",
@@ -1248,8 +1241,7 @@ func (b *Bot) handleShareBankCommand(update tgbotapi.Update, user *models.User, 
 
 	b.sendMessage(chatID, shareText)
 
-	// Note: In a real implementation, we would store the share information in the database
-	// and validate that the target user exists before sharing.
+	// Invitations are signed, short-lived, and bound to the named recipient.
 }
 
 func (b *Bot) handleJoinBankCommand(update tgbotapi.Update, user *models.User, args string) {
@@ -1261,14 +1253,9 @@ func (b *Bot) handleJoinBankCommand(update tgbotapi.Update, user *models.User, a
 		return
 	}
 
-	// Parse the share code (bank ID)
-	bankID, err := strconv.Atoi(strings.TrimSpace(args))
+	bankID, invited, err := b.parseBankInvite(strings.TrimSpace(args), user.Username)
 	if err != nil {
-		b.logger.Error("Invalid bank ID",
-			"error", err,
-			"code", args,
-		)
-		b.sendErrorMessage(chatID, "Invalid share code. Please check and try again.")
+		b.sendErrorMessage(chatID, "Invalid or expired share code.")
 		return
 	}
 
@@ -1287,6 +1274,11 @@ func (b *Bot) handleJoinBankCommand(update tgbotapi.Update, user *models.User, a
 	hasAccess, err := b.cardbankService.UserHasAccess(user.ID, bankID)
 	if err == nil && hasAccess {
 		b.sendMessage(chatID, fmt.Sprintf("You already have access to the card bank \"%s\".", bank.Name))
+		return
+	}
+
+	if !bank.IsPublic && !invited {
+		b.sendErrorMessage(chatID, "A valid invitation is required for this private bank.")
 		return
 	}
 
@@ -1391,7 +1383,7 @@ func (b *Bot) handleSettingsCallback(update tgbotapi.Update, user *models.User, 
 
 	case "limit":
 		// Set review limit
-		b.userStates[user.TelegramID] = UserState{
+		b.userStates[conversationKey{user.TelegramID, chatID}] = UserState{
 			State:         "awaiting_settings",
 			SettingsField: "review_limit",
 		}
@@ -1452,7 +1444,7 @@ func (b *Bot) handleSettingsInput(update tgbotapi.Update, user *models.User, tex
 	chatID := update.Message.Chat.ID
 
 	// Get user state
-	state, exists := b.userStates[user.TelegramID]
+	state, exists := b.userStates[conversationKey{user.TelegramID, chatID}]
 	if !exists || state.State != "awaiting_settings" {
 		b.sendErrorMessage(chatID, "Session expired. Please start again with /settings.")
 		return
@@ -1493,7 +1485,7 @@ func (b *Bot) handleSettingsInput(update tgbotapi.Update, user *models.User, tex
 		}
 
 		// Clear user state
-		delete(b.userStates, user.TelegramID)
+		delete(b.userStates, conversationKey{user.TelegramID, chatID})
 
 		b.sendMessage(chatID, fmt.Sprintf("Review limit set to %d cards per session.", limit))
 
@@ -1557,7 +1549,16 @@ func (b *Bot) showReviewCard(chatID int64, user *models.User, card models.FlashC
 
 	// If there's an image and the card is flipped, send it
 	if card.ImageURL != "" && isFlipped {
-		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileURL(card.ImageURL))
+		var media tgbotapi.RequestFileData
+		if strings.HasPrefix(card.ImageURL, "telegram-file-id:") {
+			media = tgbotapi.FileID(strings.TrimPrefix(card.ImageURL, "telegram-file-id:"))
+		} else if strings.HasPrefix(card.ImageURL, "telegram-path:") {
+			media = tgbotapi.FileURL("https://api.telegram.org/file/bot" + b.api.Token + "/" + strings.TrimPrefix(card.ImageURL, "telegram-path:"))
+		} else {
+			// Never reuse legacy credential-bearing URLs. Run the data migration.
+			return
+		}
+		photo := tgbotapi.NewPhoto(chatID, media)
 		photo.Caption = "Context image for: " + card.Word
 		b.api.Send(photo)
 	}

@@ -172,3 +172,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Free Dictionary API](https://dictionaryapi.dev/)
 - [SuperMemo 2 Algorithm](https://www.supermemo.com/en/archives1990-2015/english/ol/sm2)
 - [Go Telegram Bot API](https://github.com/go-telegram-bot-api/telegram-bot-api)
+
+## Security rollout
+
+Provision a random `SHARE_TOKEN_SECRET` of at least 32 characters in the deployment secret store to enable owner-issued private-bank invitations. Codes expire after 24 hours and are bound to the recipient username. Numeric IDs only grant entry to public banks. Existing memberships must be reviewed for unauthorized joins. Apply migration 000002 to remove embedded Telegram bot credentials from stored photo URLs while preserving photo paths, and rotate the previously stored bot token via BotFather and update the deployment secret. New photos store reusable Telegram file IDs. Backups and old database exports containing former URLs remain sensitive.
+
+Multi-step card creation and review state is scoped to both the Telegram actor and chat, so a group message cannot resume a private conversation.
